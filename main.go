@@ -6,7 +6,6 @@ import (
 	"go-soapauth/controller"
 	"log"
 	"os"
-	"time"
 
 	"github.com/antonerne/go-soap/models"
 	"github.com/gin-gonic/gin"
@@ -48,12 +47,11 @@ func main() {
 			os.Getenv("DBUSER"), os.Getenv("SBPASSWD"), os.Getenv("DBHOST"),
 			os.Getenv("DBPORT"))
 	}
-	ctx, _ := context.WithTimeout(context.Background(), 10*time.Second)
-	client, err := mongo.Connect(ctx, options.Client().ApplyURI(dsn))
+	client, err := mongo.Connect(context.TODO(), options.Client().ApplyURI(dsn))
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer client.Disconnect(ctx)
+	defer client.Disconnect(context.TODO())
 
 	db := client.Database("soap")
 

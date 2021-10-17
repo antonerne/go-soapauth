@@ -4,7 +4,7 @@ go 1.17
 
 require (
 	github.com/Team-Scheduler/goteam v1.1.3
-	github.com/antonerne/go-soap v1.0.7
+	github.com/antonerne/go-soap v1.0.8
 	github.com/dgrijalva/jwt-go v3.2.0+incompatible
 	github.com/gin-gonic/gin v1.7.4
 	github.com/joho/godotenv v1.4.0

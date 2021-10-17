@@ -25,7 +25,6 @@ import (
 
 type Controller struct {
 	DB        *mongo.Database
-	Context   *context.Context
 	ErrorLog  *models.LogFile
 	AccessLog *models.LogFile
 }
@@ -78,7 +77,7 @@ func (con *Controller) Login(c *gin.Context) {
 					})
 					user.Creds.BadAttempts = 0
 					user.Creds.Locked = false
-					users.ReplaceOne(*con.Context, filter, user)
+					users.ReplaceOne(context.TODO(), filter, user)
 					con.SendNewComputerEmail(&user, remoteToken)
 					return
 				}
@@ -290,6 +289,7 @@ func (con *Controller) VerifyEmailAddress(c *gin.Context) {
 	filter := bson.D{primitive.E{Key: "creds.verificationtoken", Value: verifyToken}}
 	con.DB.Collection("users").FindOne(*con.Context, filter).Decode(&user)
 
+	fmt.Println(user)
 	if user.ID.Hex() != "" {
 		verified, cErr := user.Creds.Verify(verifyToken)
 		if cErr != nil || !verified {
