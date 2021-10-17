@@ -56,7 +56,7 @@ func (con *Controller) Login(c *gin.Context) {
 			if err != nil {
 				if err.Message == "Account Not Verified" {
 					verifyToken := user.Creds.StartVerification()
-					_, uerr := users.ReplaceOne(*con.Context, filter, user)
+					_, uerr := users.ReplaceOne(context.TODO(), filter, user)
 					if uerr != nil {
 						c.JSON(http.StatusNotFound, gin.H{
 							"error": "Update Error: " + uerr.Error(),
