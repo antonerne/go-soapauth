@@ -1,0 +1,6 @@
+{{.Subject}}<br />
+<br />
+{{.Message}}<br />
+<br />
+<a href="{{.Link}}" target="_blank">{{.Button}}</a>
+Sent by Team-Scheduler Support (DO NOT REPLY)

@@ -1,0 +1,207 @@
+<!DOCTYPE html >
+<html lang="en">
+  <head>
+    <meta name="viewport" content="width=device-width"/>
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+    <title>Forgotten Password Change</title>
+    <style type="text/css">
+      body{
+        margin: 0 auto;
+        padding: 0;
+        min-width: 100%;
+        font-family: sans-serif;
+        text-align: center;
+        background-color: #6666ff
+      }
+      table.password {
+        margin-left: auto;
+        margin-right: auto;
+        margin-top: 20px;
+        width: 350px;
+        background-color: white;
+        color: #6666ff
+      }
+
+      .header{
+        text-align: center;
+        text-transform: uppercase;
+        font-size: 24px;
+        font-weight: bold;
+        width: 100%;
+      }
+      .content{
+        font-size: 18px;
+        line-height: 30px;
+      }
+      .error{
+          font-size:10px;
+          color: red;
+          padding: 10px;
+          text-align: left;
+      }
+      .subscribe{
+        height: 70px;
+        text-align: center;
+      }
+      .button{
+        text-align: center;
+        font-size: 18px;
+        font-family: sans-serif;
+        font-weight: bold;
+        padding: 0 30px 0 30px;
+      }
+      .button {
+        background-color: #6666ff;
+        color: white;
+        font-weight: bold;
+        font-size: 14pt;
+        text-decoration: none;
+      }
+      .buttonwrapper{
+        margin: 0 auto;
+      }
+      .footer{
+        text-transform: uppercase;
+        text-align: center;
+        height: 40px;
+        font-size: 14px;
+        font-style: italic;
+      }
+      .footer a{
+        color: #000000;
+        text-decoration: none;
+        font-style: normal;
+      }
+    </style>
+    <script>
+        function validate() {
+            var password = document.getElementById("newpassword").value;
+            var confirm = document.getElementById("confirm").value;
+            var token = document.getElementById("token").value;
+            var employeeid = document.getElementById("employeeid").value;
+            var lower = 0;
+            var upper = 0; 
+            var numeric = 0;
+            var other = 0;
+            var lowerRExp = /[a-z]/;
+            var upperRExp = /[A-Z]/;
+            var numberRExp = /[0-9]/;
+            for ( var i = 0; i < password.length; i++) {
+                var ch = password.substring(i, i+1)
+                if (lowerRExp.test(ch)) {
+                    lower++;
+                } else if (upperRExp.test(ch)) {
+                    upper++;
+                } else if (numberRExp.test(ch)) {
+                    numeric++;
+                } else {
+                    other++;
+                }
+            }
+            var problems = "";
+            if (password.length < 10) {
+                problems += "* Password Length must be at least 10 characters!";
+            }
+            if (lower < 2) {
+                if (problems !== "") {
+                    problems += "<br />"
+                }
+                problems += "* Password must contain at least 2 lowercase letters";
+            }
+            if (upper < 2) {
+                if (problems !== "") {
+                    problems += "<br />"
+                }
+                problems += "* Password must contain at least 2 uppercase letters";
+            }
+            if (numeric < 2) {
+                if (problems !== "") {
+                    problems += "<br />"
+                }
+                problems += "* Password must contain at least 2 numbers (0-9)";
+            }
+            if (other < 2) {
+                if (problems !== "") {
+                    problems += "<br />"
+                }
+                problems += "* Password must contain at least 2 special characters";
+            }
+            if (password !== confirm) {
+                if (problems !== "") {
+                    problems += "<br />"
+                }
+                problems += "* The new password and confirm must match!";
+            }
+
+            if (problems === "") {
+                var data = '{ "employeeid":"' + employeeid + '","resettoken":"'
+                  + token + '","newpassword":"' + password + '"}';
+                var xhr = new XMLHttpRequest();
+                var url = 'https://team-scheduler.com/api/v1/auth/forgot';
+                xhr.open("POST", url, true)
+                xhr.setRequestHeader("Content-Type", "application/json");
+                xhr.onreadystatechange = function() {
+                  var obj = document.getElementById("errors");
+                  if (xhr.readyState === 4 && xhr.status === 200) {
+                    var ans = JSON.parse(xhr.responseText);
+                    if (ans.message) {
+                      obj.ClassName = "response";
+                      obj.innerHTML = "Password is Reset.  You can now login!";
+                    }
+                  } else if (xhr.readyState === 4 && xhr.status >= 400) {
+                    var ans = JSON.parse(xhr.responseText);
+                    if (ans) {
+                      obj.ClassName = "error";
+                      obj.innerHTML = ans.error.message;
+                    }
+                  }
+                }
+            } else {
+                document.getElementById("errors").innerHTML = problems;
+            }
+        }
+    </script>
+  </head>
+  <body>
+    <input type="hidden" id="token" value="{{.ResetToken}}"/>
+    <input type="hidden" id="employeeid" value="{{.EmployeeID}}"/>
+    <table class="password">
+      <tr class="header">
+        <td class="header" colspan="2">
+            Password Reset Request
+        </td>
+      </tr>
+      <tr>
+        <td class="content" style="padding:10px;width: 40%;">
+            Password:
+        </td>
+        <td class="content" style="padding:10px;width:60%;">
+            <input type="password" id="newpassword" />
+        </td>
+      </tr>
+      <tr>
+        <td class="content" style="padding:10px;width: 40%;">
+            Confirm:
+        </td>
+        <td class="content" style="padding:10px;width:60%;">
+            <input type="password" id="confirm" />
+        </td>
+      </tr>
+      <tr class="subscribe">
+        <td style="padding: 20px 0 0 0;" colspan="2">
+            <input type="button" class="button" 
+              click="validate()" value="Submit" />
+            <input type="button" class="button" value="Cancel" />
+        </td>
+      </tr>
+      <tr>
+          <td class="error" id="errors" colspan="2"></td>
+      </tr>
+      <tr class="footer">
+        <td style="padding: 40px;" colspan="2">
+          Prepared by Team-Scheduling Support
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>
