@@ -8,7 +8,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/Team-Scheduler/goteam/models/logs"
+	"github.com/antonerne/go-soap/models"
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -57,8 +57,8 @@ func main() {
 
 	db := client.Database("soap")
 
-	accessLog := logs.LogFile{Directory: os.Getenv("LOGLOCATION"), FileType: "Access"}
-	errorLog := logs.LogFile{Directory: os.Getenv("LOGLOCATION"), FileType: "Error"}
+	accessLog := models.LogFile{Directory: os.Getenv("LOGLOCATION"), FileType: "Access"}
+	errorLog := models.LogFile{Directory: os.Getenv("LOGLOCATION"), FileType: "Error"}
 	controller := controller.Controller{DB: db, AccessLog: &accessLog,
 		ErrorLog: &errorLog}
 
@@ -70,14 +70,12 @@ func main() {
 			auth.PUT("", controller.RefreshToken)
 			auth.DELETE("", controller.Logout)
 			auth.GET("verify/:token", controller.VerifyEmailAddress)
+			auth.GET("remote/:token", controller.ApproveRemote)
 			auth.PUT("password", controller.ChangePassword)
-			auth.GET("forgot/:token", controller.ForgotPasswordTwo)
-			auth.POST("forgot", controller.ForgotPasswordThree)
-			auth.PUT("forgot", controller.ForgotPasswordOne)
+			auth.POST("forgot", controller.ForgotPassword)
+			auth.PUT("forgot", controller.ForgotPasswordChange)
 		}
 	}
-	r.GET("/alive", controller.AliveCheck)
-	r.GET("/healthy", controller.HealthCheck)
 
-	r.Run(":5001")
+	r.Run(":6001")
 }

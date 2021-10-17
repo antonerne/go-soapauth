@@ -538,7 +538,7 @@ func (con *Controller) ChangePassword(c *gin.Context) {
 // @Success 200 {string} message
 // @Failure 400,401,404 {object} communications.ErrorMessage
 // @Router /auth/forgot [put]
-func (con *Controller) ForgotPasswordOne(c *gin.Context) {
+func (con *Controller) ForgotPassword(c *gin.Context) {
 	// step one is the default step of sending the user an email with the
 	// forgot password (reset) token.  This is based on the user's email
 	// address.
@@ -630,7 +630,7 @@ func (con *Controller) ForgotPasswordOne(c *gin.Context) {
 // @Success 200 {html} resetpassword
 // @Failure 400,401,404 {object} communications.ErrorMessage
 // @Router /auth/forgot/{token} [get]
-func (con *Controller) ForgotPasswordTwo(c *gin.Context) {
+func (con *Controller) ForgotPasswordChange(c *gin.Context) {
 	var request communications.ForgotPasswordChangeRequest
 	if err := c.BindJSON(&request); err == nil {
 		var user models.User
