@@ -2,7 +2,6 @@ package controller
 
 import (
 	"bytes"
-	"context"
 	"crypto/tls"
 	"fmt"
 	"go-soapauth/communications"
@@ -13,18 +12,16 @@ import (
 	"time"
 
 	models "github.com/antonerne/go-soap/models"
+	"gorm.io/gorm"
 
 	"github.com/dgrijalva/jwt-go"
 	"github.com/gin-gonic/gin"
-	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/bson/primitive"
-	"go.mongodb.org/mongo-driver/mongo"
 
 	gomail "gopkg.in/mail.v2"
 )
 
 type Controller struct {
-	DB        *mongo.Database
+	DB        *gorm.DB
 	ErrorLog  *models.LogFile
 	AccessLog *models.LogFile
 }
@@ -42,21 +39,21 @@ type Controller struct {
 func (con *Controller) Login(c *gin.Context) {
 	// get request from the context
 	var request communications.AuthenticationRequest
-	users := con.DB.Collection("users")
 	if err := c.BindJSON(&request); err == nil {
 		// get requested user
 		var user models.User
-		filter := bson.D{primitive.E{Key: "email", Value: request.Email}}
 
-		err = users.FindOne(context.TODO(), filter).Decode(&user)
+		con.DB.Preload("Name").Preload("Creds").Preload("Remotes").
+			Preload("Studies.Periods.StudyDays.References").
+			Where("email = ?", request.Email).Find(&user)
 
-		if user.ID.Hex() != "" {
+		if user.ID != "" {
 			// user found, so now compare the password authentication
 			_, err := user.Creds.LogIn(request.Password, c.ClientIP())
 			if err != nil {
 				if err.Message == "Account Not Verified" {
 					verifyToken := user.Creds.StartVerification()
-					_, uerr := users.ReplaceOne(context.TODO(), filter, user)
+					uerr := con.DB.Save(&user.Creds).Error
 					if uerr != nil {
 						c.JSON(http.StatusNotFound, gin.H{
 							"error": "Update Error: " + uerr.Error(),
@@ -77,21 +74,20 @@ func (con *Controller) Login(c *gin.Context) {
 					})
 					user.Creds.BadAttempts = 0
 					user.Creds.Locked = false
-					users.ReplaceOne(context.TODO(), filter, user)
+					con.DB.Save(&user.Creds)
 					con.SendNewComputerEmail(&user, remoteToken)
 					return
 				}
-				users.ReplaceOne(*con.Context, filter, user)
+				con.DB.Save(&user)
 				c.JSON(http.StatusUnauthorized, gin.H{
 					"error": err.Message,
 				})
 				return
 			}
 
-			tokens := con.DB.Collection("tokens")
-			tokenString, token, _ := user.Creds.CreateJWTToken(
-				user.ID, user.Email, user.Roles, "")
-			_, terr := tokens.InsertOne(*con.Context, token)
+			tokenString, token, terr := user.Creds.CreateJWTToken(
+				user.ID, user.Email, user.Editor, "")
+			con.DB.Create(&token)
 			if terr != nil {
 				aerr := &communications.ErrorMessage{
 					ErrorType:  "credentials",
@@ -232,24 +228,19 @@ func (con *Controller) Logout(c *gin.Context) {
 	tokenString := authHeader[len("Bearer")+1:]
 	token, err := creds.ValidateToken(tokenString)
 	if token.Valid {
-		claims := token.Claims.(jwt.MapClaims)
+		claims := creds.GetClaims(token.Claims.(jwt.MapClaims))
 		var user models.User
-		users := con.DB.Collection("users")
-		filter := bson.D{primitive.E{Key: "email", Value: claims["Email"].(string)}}
 
-		err = users.FindOne(context.TODO(), filter).Decode(&user)
-		if err != nil {
-			con.ErrorLog.WriteToLog(err.Error())
+		uerr := con.DB.Preload("Name").Where("id = ?", claims.Id).Find(&user).Error
+		if uerr != nil {
+			con.ErrorLog.WriteToLog(uerr.Error())
 		}
 
-		uuid, err := primitive.ObjectIDFromHex(claims["Uuid"].(string))
-		if err != nil {
-			con.ErrorLog.WriteToLog(err.Error())
+		uerr = con.DB.Where("id = ?", claims.Uuid).Delete(models.Token{}).Error
+		if uerr != nil {
+			con.ErrorLog.WriteToLog(uerr.Error())
 			return
 		}
-		filter = bson.D{primitive.E{Key: "_id", Value: uuid}}
-
-		con.DB.Collection("tokens").DeleteOne(*con.Context, filter)
 
 		con.AccessLog.WriteToLog(fmt.Sprintf("%s Logged Out", user.Name.FullName()))
 	} else {
@@ -284,14 +275,12 @@ func (con *Controller) Logout(c *gin.Context) {
 func (con *Controller) VerifyEmailAddress(c *gin.Context) {
 	// get the verification code in the parameters
 	verifyToken := c.Param("token")
-	var user models.User
+	var cred models.Credentials
 
-	filter := bson.D{primitive.E{Key: "creds.verificationtoken", Value: verifyToken}}
-	con.DB.Collection("users").FindOne(*con.Context, filter).Decode(&user)
+	con.DB.Where("verificationtoken = ?", verifyToken).Find(&cred)
 
-	fmt.Println(user)
-	if user.ID.Hex() != "" {
-		verified, cErr := user.Creds.Verify(verifyToken)
+	if cred.UserID != "" {
+		verified, cErr := cred.Verify(verifyToken)
 		if cErr != nil || !verified {
 			if !verified && cErr == nil {
 				cErr = &models.ErrorMessage{
@@ -306,7 +295,7 @@ func (con *Controller) VerifyEmailAddress(c *gin.Context) {
 			})
 			return
 		}
-		con.DB.Collection("users").ReplaceOne(*con.Context, filter, user)
+		con.DB.Save(&cred)
 
 		c.JSON(http.StatusOK, gin.H{
 			"message": "Account Verified",
@@ -342,20 +331,11 @@ func (con *Controller) RefreshToken(c *gin.Context) {
 	token, err := creds.ValidateToken(tokenString)
 	if token.Valid {
 		claims := creds.GetClaims(token.Claims.(jwt.MapClaims))
-		var user models.User
-		userid, _ := primitive.ObjectIDFromHex(claims.Id)
-		filter := bson.D{primitive.E{Key: "_id", Value: userid}}
-		err := con.DB.Collection("users").FindOne(*con.Context, filter).Decode(&user)
 
-		if err != nil {
-			c.JSON(http.StatusNotFound, gin.H{
-				"error": "User Error: " + err.Error(),
-			})
-			return
-		}
+		con.DB.Where("id = ?", claims.Uuid).Delete(models.Token{})
 
-		tokenString, tk, err := user.Creds.CreateJWTToken(user.ID, user.Email,
-			user.Roles, "")
+		tokenString, tk, err := creds.CreateJWTToken(claims.Id, claims.Email,
+			claims.Editor, "")
 		if err != nil {
 			con.ErrorLog.WriteToLog(err.Error())
 			cErr := communications.ErrorMessage{
@@ -368,8 +348,8 @@ func (con *Controller) RefreshToken(c *gin.Context) {
 			})
 			return
 		}
-		con.DB.Collection("tokens").InsertOne(*con.Context, tk)
-		accessMsg := fmt.Sprintf("%s - Token Refreshed", user.Name.FullName())
+		con.DB.Create(&tk)
+		accessMsg := fmt.Sprintf("%s - Token Refreshed", claims.Id)
 		con.AccessLog.WriteToLog(accessMsg)
 		c.JSON(http.StatusOK, gin.H{
 			"token": tokenString,
@@ -395,44 +375,29 @@ func (con *Controller) RefreshToken(c *gin.Context) {
 func (con *Controller) ApproveRemote(c *gin.Context) {
 	verifyToken := c.Param("token")
 	var user models.User
-	filter := bson.D{primitive.E{Key: "creds.newremotetoken", Value: verifyToken}}
-	con.DB.Collection("users").FindOne(*con.Context, filter).Decode(&user)
+	var cred models.Credentials
+	con.DB.Where("newremotetoken = ?", verifyToken).Find(&cred)
 
-	if user.ID.Hex() != "" {
-		approved, err := user.Creds.VerifyRemoteToken(verifyToken, c.ClientIP())
-		if err != nil || !approved {
-			if err != nil {
-				c.JSON(int(err.StatusCode), gin.H{
-					"error": err.Message,
-				})
-				return
+	if cred.UserID != "" {
+		cred.NewRemoteToken = ""
+		con.DB.Save(&cred)
+
+		con.DB.Preload("Name").Preload("Creds").Preload("Remotes").
+			Where("id = ?", cred.UserID).Find(&user)
+
+		if !user.HasRemote(c.ClientIP()) {
+			remote := models.UserRemote{
+				UserID:   user.ID,
+				RemoteIP: c.ClientIP(),
 			}
-			c.JSON(http.StatusBadRequest, gin.H{
-				"error": "Remote Not Verified for unknown reasons.",
-			})
-			return
+			con.DB.Create(&remote)
+			user.Remotes = append(user.Remotes, remote)
 		}
-		con.DB.Collection("users").ReplaceOne(*con.Context, filter, user)
-		tokens := con.DB.Collection("tokens")
-		tokenString, token, _ := user.Creds.CreateJWTToken(
-			user.ID, user.Email, user.Roles, "")
-		_, terr := tokens.InsertOne(*con.Context, token)
-		if terr != nil {
-			aerr := &communications.ErrorMessage{
-				ErrorType:  "credentials",
-				StatusCode: http.StatusBadRequest,
-				Message:    "Unable to Create JWT Token: " + terr.Error(),
-			}
-			con.ErrorLog.WriteToLog(aerr.String())
-			c.JSON(http.StatusBadRequest, gin.H{
-				"error": aerr.Message,
-			})
-			return
-		}
+
 		accessMsg := fmt.Sprintf("%s - Logged In", user.Name.FullName())
 		con.AccessLog.WriteToLog(accessMsg)
 		c.JSON(http.StatusOK, gin.H{
-			"token": tokenString,
+			"message": "Remote Added",
 		})
 		return
 	}
@@ -462,9 +427,10 @@ func (con *Controller) ChangePassword(c *gin.Context) {
 		var request communications.NewPasswordRequest
 		if err = c.BindJSON(&request); err == nil {
 			var user models.User
-			userid, _ := primitive.ObjectIDFromHex(request.UserID)
-			filter := bson.D{primitive.E{Key: "_id", Value: userid}}
-			con.DB.Collection("users").FindOne(*con.Context, filter).Decode(&user)
+
+			con.DB.Preload("Name").Preload("Creds").Preload("Remotes").
+				Preload("Studies.Periods.StudyDays.References").
+				Where("id = ?", request.UserID).Find(&user)
 
 			login, cErr := user.Creds.LogIn(request.OldPassword, c.ClientIP())
 			if !login || cErr != nil {
@@ -485,12 +451,14 @@ func (con *Controller) ChangePassword(c *gin.Context) {
 				}
 				return
 			}
+
 			user.Creds.SetPassword(request.NewPassword)
-			con.DB.Collection("users").ReplaceOne(*con.Context, filter, user)
+
+			con.DB.Save(&user.Creds)
 
 			claims := user.Creds.GetClaims(token.Claims.(jwt.MapClaims))
 			tokenString, tk, err := user.Creds.CreateJWTToken(user.ID,
-				user.Email, user.Roles, "")
+				user.Email, user.Editor, "")
 			if err != nil {
 				con.ErrorLog.WriteToLog(err.Error())
 				cErr := communications.ErrorMessage{
@@ -503,11 +471,10 @@ func (con *Controller) ChangePassword(c *gin.Context) {
 				})
 				return
 			}
-			uuid, _ := primitive.ObjectIDFromHex(claims.Uuid)
-			filter = bson.D{primitive.E{Key: "_id", Value: uuid}}
 
-			con.DB.Collection("tokens").DeleteOne(*con.Context, filter)
-			con.DB.Collection("tokens").InsertOne(*con.Context, tk)
+			con.DB.Where("id = ?", claims.Uuid).Delete(models.Token{})
+			con.DB.Create(&tk)
+
 			accessMsg := fmt.Sprintf("%s - Logged In", user.Name.FullName())
 			con.AccessLog.WriteToLog(accessMsg)
 			c.JSON(http.StatusOK, gin.H{
@@ -545,11 +512,16 @@ func (con *Controller) ForgotPassword(c *gin.Context) {
 	var forgotStart communications.ForgotPasswordStartRequest
 	if err := c.BindJSON(&forgotStart); err == nil {
 		var user models.User
-		filter := bson.D{primitive.E{Key: "email", Value: forgotStart.Email}}
-		con.DB.Collection("users").FindOne(*con.Context, filter).Decode(&user)
+
+		con.DB.Preload("Name").Preload("Creds").Preload("Remotes").
+			Preload("Studies.Periods.StudyDays.References").
+			Where("email = ?", forgotStart.Email).Find(&user)
+
 		token := user.Creds.StartForgot()
-		con.DB.Collection("users").ReplaceOne(*con.Context, filter, user)
-		if user.ID.Hex() != "" {
+
+		con.DB.Save(&user.Creds)
+
+		if user.ID != "" {
 			t, err := template.ParseFiles("email.template.html")
 			if err != nil {
 				c.JSON(http.StatusNotAcceptable, gin.H{
@@ -634,23 +606,18 @@ func (con *Controller) ForgotPasswordChange(c *gin.Context) {
 	var request communications.ForgotPasswordChangeRequest
 	if err := c.BindJSON(&request); err == nil {
 		var user models.User
-		userid, err := primitive.ObjectIDFromHex(request.UserID)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"error": "User ID contains bad data!",
-			})
-			return
-		}
-		filter := bson.D{primitive.E{Key: "_id", Value: userid}}
-		con.DB.Collection("users").FindOne(*con.Context, filter).Decode(&user)
 
-		if user.ID.Hex() != "" {
+		con.DB.Preload("Name").Preload("Creds").Preload("Remotes").
+			Preload("Studies.Periods.StudyDays.References").
+			Where("id = ?", request.UserID).Find(&user)
+
+		if user.ID != "" {
 
 			if user.Creds.ResetToken == request.ResetToken {
 				user.Creds.SetPassword(request.NewPassword)
 				user.Creds.ResetToken = ""
 				user.Creds.ResetExpires = time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC)
-				con.DB.Collection("users").ReplaceOne(*con.Context, filter, user)
+				con.DB.Save(&user.Creds)
 				c.JSON(http.StatusOK, gin.H{
 					"message": "Password Changed",
 				})

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"go-soapauth/controller"
 	"log"
@@ -10,8 +9,8 @@ import (
 	"github.com/antonerne/go-soap/models"
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
-	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
 )
 
 // @title Team-Scheduler Authentication Microservice
@@ -41,19 +40,13 @@ func main() {
 	r := gin.Default()
 
 	// create database connection as a pool.
-	dsn := os.Getenv("DBCONNECT")
-	if dsn == "" {
-		dsn = fmt.Sprintf("mongodb://%s:%s@%s:%s",
-			os.Getenv("DBUSER"), os.Getenv("SBPASSWD"), os.Getenv("DBHOST"),
-			os.Getenv("DBPORT"))
-	}
-	client, err := mongo.Connect(context.TODO(), options.Client().ApplyURI(dsn))
+	dsn := fmt.Sprintf("host=%s user=%s password=%s dbname=%s port=%s",
+		os.Getenv("DBHOST"), os.Getenv("DBUSER"), os.Getenv("DBPASSWD"),
+		os.Getenv("DATABASE"), os.Getenv("DBPORT"))
+	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer client.Disconnect(context.TODO())
-
-	db := client.Database("soap")
 
 	accessLog := models.LogFile{Directory: os.Getenv("LOGLOCATION"), FileType: "Access"}
 	errorLog := models.LogFile{Directory: os.Getenv("LOGLOCATION"), FileType: "Error"}
