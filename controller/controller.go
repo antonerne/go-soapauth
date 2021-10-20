@@ -43,7 +43,7 @@ func (con *Controller) Login(c *gin.Context) {
 		// get requested user
 		var user models.User
 
-		con.DB.Preload("Name").Preload("Creds").Preload("Remotes").
+		con.DB.Preload("Name").Preload("Creds.Remotes").
 			Preload("Studies.Periods.StudyDays.References").
 			Where("email = ?", request.Email).Find(&user)
 
@@ -382,16 +382,16 @@ func (con *Controller) ApproveRemote(c *gin.Context) {
 		cred.NewRemoteToken = ""
 		con.DB.Save(&cred)
 
-		con.DB.Preload("Name").Preload("Creds").Preload("Remotes").
+		con.DB.Preload("Name").Preload("Creds.Remotes").
 			Where("id = ?", cred.UserID).Find(&user)
 
-		if !user.HasRemote(c.ClientIP()) {
+		if !user.Creds.HasRemote(c.ClientIP()) {
 			remote := models.UserRemote{
-				UserID:   user.ID,
-				RemoteIP: c.ClientIP(),
+				CredentialsUserID: user.ID,
+				RemoteIP:          c.ClientIP(),
 			}
 			con.DB.Create(&remote)
-			user.Remotes = append(user.Remotes, remote)
+			user.Creds.Remotes = append(user.Creds.Remotes, remote)
 		}
 
 		accessMsg := fmt.Sprintf("%s - Logged In", user.Name.FullName())
