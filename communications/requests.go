@@ -20,3 +20,19 @@ type ForgotPasswordChangeRequest struct {
 	ResetToken  string `json:"resettoken"`
 	NewPassword string `json:"newpassword"`
 }
+
+type NewUserRequest struct {
+	Email      string `json:"email"`
+	FirstName  string `json:"first"`
+	MiddleName string `json:"middle,omitempty"`
+	LastName   string `json:"last"`
+	NameSuffix string `json:"suffix,omitempty"`
+	Password   string `json:"password"`
+}
+
+type UpdateUserRequest struct {
+	ID    string `json:"id,omitempty"`
+	Email string `json:"email,omitempty"`
+	Field string `json:"field"`
+	Value string `json:"value"`
+}

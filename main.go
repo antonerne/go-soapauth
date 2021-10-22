@@ -50,21 +50,32 @@ func main() {
 
 	accessLog := models.LogFile{Directory: os.Getenv("LOGLOCATION"), FileType: "Access"}
 	errorLog := models.LogFile{Directory: os.Getenv("LOGLOCATION"), FileType: "Error"}
-	controller := controller.Controller{DB: db, AccessLog: &accessLog,
+	control := controller.Controller{DB: db, AccessLog: &accessLog,
+		ErrorLog: &errorLog}
+	userControl := controller.UserController{DB: db, AccessLog: &accessLog,
 		ErrorLog: &errorLog}
 
 	v1 := r.Group("/api/v1")
 	{
 		auth := v1.Group("/auth")
 		{
-			auth.POST("", controller.Login)
-			auth.PUT("", controller.RefreshToken)
-			auth.DELETE("", controller.Logout)
-			auth.GET("verify/:token", controller.VerifyEmailAddress)
-			auth.GET("remote/:token", controller.ApproveRemote)
-			auth.PUT("password", controller.ChangePassword)
-			auth.POST("forgot", controller.ForgotPassword)
-			auth.PUT("forgot", controller.ForgotPasswordChange)
+			auth.POST("", control.Login)
+			auth.PUT("", control.RefreshToken)
+			auth.DELETE("", control.Logout)
+			auth.GET("verify/:token", control.VerifyEmailAddress)
+			auth.GET("remote/:token", control.ApproveRemote)
+			auth.PUT("password", control.ChangePassword)
+			auth.POST("forgot", control.ForgotPassword)
+			auth.PUT("forgot", control.ForgotPasswordChange)
+		}
+
+		user := auth.Group("/users")
+		{
+			user.GET("/:id", models.AuthorizeJWT(db, &errorLog), userControl.GetUser)
+			user.POST("/", userControl.AddUser)
+			user.PUT("/", models.AuthorizeJWT(db, &errorLog), userControl.UpdateUser)
+			user.DELETE("/:id", models.AuthorizeJWT(db, &errorLog),
+				userControl.DeleteUser)
 		}
 	}
 
